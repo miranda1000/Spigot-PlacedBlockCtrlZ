@@ -48,9 +48,9 @@
         </dependency>
 
         <dependency>
-            <groupId>com.github.rogermiranda1000</groupId>
+            <groupId>com.github.miranda1000</groupId>
             <artifactId>WatchWolf-Tester</artifactId>
-            <version>0.3</version>
+            <version>0.3.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
