@@ -1,9 +1,0 @@
-server-type:
-  - Spigot:
-      - "1.19"
-
-users:
-  - "user1"
-  - "user2"
-
-plugin: "./target/PlacedBlockCtrlZ-1.0.0.jar"

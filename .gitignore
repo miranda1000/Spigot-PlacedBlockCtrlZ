@@ -9,3 +9,6 @@
 # Maven
 log/
 target/
+
+# ci-manual (manually-launched test server)
+ci-manual/server-run/

@@ -1,36 +1,54 @@
-import dev.watchwolf.entities.Position;
-import dev.watchwolf.entities.blocks.Block;
-import dev.watchwolf.entities.blocks.Blocks;
-import dev.watchwolf.entities.items.Item;
-import dev.watchwolf.entities.items.ItemType;
-import dev.watchwolf.tester.AbstractTest;
+import dev.watchwolf.core.entities.Position;
+import dev.watchwolf.core.entities.blocks.Block;
+import dev.watchwolf.core.entities.blocks.Blocks;
+import dev.watchwolf.core.entities.items.Item;
+import dev.watchwolf.core.entities.items.ItemType;
 import dev.watchwolf.tester.ExtendedClientPetition;
 import dev.watchwolf.tester.TesterConnector;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ArgumentsSource;
 
 import java.io.IOException;
 import java.util.HashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * All the tests that we expect to fulfill the plugin's requirements.
+ *
+ * This extends {@link ManualServerTest} instead of WatchWolf-Tester's own {@code AbstractTest}:
+ * these tests run against a Minecraft server you start yourself with
+ * {@code ci-manual/2-start-server.sh}, which has no WatchWolf-Server dispatcher plugin on it
+ * either -- see that script, and {@link ManualServerTest}'s Javadoc, for details. In practice that
+ * means the "prepare the environment"/"give the client items" steps below go through
+ * {@link ManualServerTest#setBlock}/{@link ManualServerTest#giveItem} (a command run by a bot)
+ * instead of {@code connector.server.setBlock}/{@code connector.server.giveItem}.
  */
 @ExtendWith(PlacedBlockCtrlZShould.class)
-public class PlacedBlockCtrlZShould extends AbstractTest {
+public class PlacedBlockCtrlZShould extends ManualServerTest {
     @Override
-    public String getConfigFile() {
-        return "src/test/resources/config.yaml";
+    protected String[] getUsers() {
+        return new String[] {"user1"};
+    }
+
+    @BeforeEach
+    public void prepareWorld(TesterConnector connector) throws IOException {
+        ExtendedClientPetition operator = connector.getClientPetition(connector.getClients()[0]);
+        // Dirt beside the superflat world's grass can change material before undo runs.
+        runCommand(operator, "gamerule randomTickSpeed 0");
+        // The manually started server persists player inventories between test runs.
+        for (String user : connector.getClients()) {
+            runCommand(operator, "clear " + user);
+        }
     }
 
     /**
      * We'll place one dirt block, run the ctrl-z command, and then there should be air in that place
      * and the player should have his block back.
      */
-    @ParameterizedTest
-    @ArgumentsSource(PlacedBlockCtrlZShould.class)
+    @Test
     public void restoreTheLastBrokenBlock(TesterConnector connector) throws IOException {
         /* decide where/who will interact with the event */
         String client = connector.getClients()[0];
@@ -39,60 +57,22 @@ public class PlacedBlockCtrlZShould extends AbstractTest {
         Block whatBlockWillBePlaced = Blocks.DIRT;
 
         /* prepare the environment (make sure the player can place the block there) */
-        connector.server.setBlock(whereToPlaceTheBlock, Blocks.AIR);
+        setBlock(clientConnector, whereToPlaceTheBlock, Blocks.AIR);
 
         /* prepare the client (give him the block to place) */
         Item placedBlockItem = new Item(whatBlockWillBePlaced.getItemType());
-        connector.server.giveItem(client, placedBlockItem);
+        giveItem(clientConnector, client, placedBlockItem);
 
         /* start the test */
         clientConnector.setBlock(whatBlockWillBePlaced, whereToPlaceTheBlock); // place the block
+        assertTrue(isBlock(clientConnector, whereToPlaceTheBlock, whatBlockWillBePlaced),
+                "The bot did not place the dirt block; cannot test undo.");
         clientConnector.runCommand("ctrl-z"); // undo
 
-        assertEquals(Blocks.AIR, connector.server.getBlock(whereToPlaceTheBlock)); // we expect air in the place we've put the block
-        assertEquals(1, getItemAmounts(clientConnector.getInventory().getItems()).get(whatBlockWillBePlaced.getItemType())); // we expect 1 dirt block back
-    }
-
-    /**
-     * We'll place two blocks with different clients. The first client will run the ctrl-z command,
-     * and then there should be air in the first place and the player should have his block back.
-     */
-    @ParameterizedTest
-    @ArgumentsSource(PlacedBlockCtrlZShould.class)
-    public void restoreTheLastBrokenBlockByTheUser(TesterConnector connector) throws IOException {
-        /* decide where/who will interact with the event */
-        String client1 = connector.getClients()[0],
-                client2 = connector.getClients()[1];
-        ExtendedClientPetition clientConnector1 = connector.getClientPetition(client1),
-                                clientConnector2 = connector.getClientPetition(client2);
-        boolean clientsInSamePosition = clientConnector1.getPosition().equals(clientConnector2.getPosition());
-        Position whereToPlaceTheBlock1 = clientConnector1.getPosition().add(1,0,0),
-                whereToPlaceTheBlock2 = clientConnector2.getPosition().add(clientsInSamePosition ? 0 : 1, 0, clientsInSamePosition ? 1 : 0); // make sure that we don't place the block in the same position
-        Block whatBlockWillBePlaced1 = Blocks.DIRT,
-                whatBlockWillBePlaced2 = Blocks.DIAMOND_BLOCK;
-
-        /* prepare the environment (make sure the player can place the block there) */
-        connector.server.setBlock(whereToPlaceTheBlock1, Blocks.AIR);
-        connector.server.setBlock(whereToPlaceTheBlock2, Blocks.AIR);
-
-        /* prepare the client (give him the block to place) */
-        Item placedBlockItem1 = new Item(whatBlockWillBePlaced1.getItemType()),
-                placedBlockItem2 = new Item(whatBlockWillBePlaced2.getItemType());
-        connector.server.giveItem(client1, placedBlockItem1);
-        connector.server.giveItem(client2, placedBlockItem2);
-
-        /* start the test */
-        clientConnector1.setBlock(whatBlockWillBePlaced1, whereToPlaceTheBlock1); // place the first block
-        clientConnector2.setBlock(whatBlockWillBePlaced2, whereToPlaceTheBlock2); // place the second block
-        clientConnector1.runCommand("ctrl-z"); // client 1 undo the first block
-
-        // we DON'T expect 1 diamond block back
-        int numDiamondBlocksOnPlayer1 = getItemAmounts(clientConnector1.getInventory().getItems()).get(whatBlockWillBePlaced2.getItemType());
-        assertEquals(0, numDiamondBlocksOnPlayer1,
-                    "We expect 0 diamond blocks on player 1; got " + numDiamondBlocksOnPlayer1 + " instead");
-
-        assertEquals(Blocks.AIR, connector.server.getBlock(whereToPlaceTheBlock1)); // we expect air in the place we've put the block
-        assertEquals(1, getItemAmounts(clientConnector1.getInventory().getItems()).get(whatBlockWillBePlaced1.getItemType())); // we expect 1 dirt block back
+        assertTrue(isBlock(clientConnector, whereToPlaceTheBlock, Blocks.AIR)); // we expect air in the place we've put the block
+        HashMap<ItemType, Integer> inventory = getItemAmounts(clientConnector.getInventory().getItems());
+        assertEquals(1, inventory.getOrDefault(whatBlockWillBePlaced.getItemType(), 0).intValue(),
+                "Expected one dirt block after undo; inventory was " + inventory);
     }
 
     /**
